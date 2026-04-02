@@ -1,0 +1,33 @@
+# .NET Core
+[Bb]in/
+[Oo]bj/
+*.user
+*.userosscache
+*.sln.doccache
+*.suo
+*.userprefs
+*.vshost.exe
+*.vshost.exe.config
+*.vshost.exe.manifest
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment
+.env
+*.env
+
+# Visual Studio Code
+.vscode/
+
+# Logs
+*.log
