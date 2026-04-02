@@ -10,6 +10,12 @@ public class AppConfig
     public string EncryptionKey { get; set; } = string.Empty;
     public string ForensicSalt { get; set; } = string.Empty;
 
+    /// <summary>When true (and FORENSIC_SALT is set), session log text is written and hashed on leave.</summary>
+    public bool ExportSessionLogOnLeave { get; set; }
+
+    /// <summary>Optional folder for session exports; empty = temp directory.</summary>
+    public string SessionExportDirectory { get; set; } = string.Empty;
+
     /// <summary>WebSocket URL for the monitoring agent (ws:// or wss://). Empty = no agent connection.</summary>
     public string LogServerUrl { get; set; } = string.Empty;
 
@@ -33,4 +39,13 @@ public class AppConfig
             EnableDemoLogFeed = EnableDemoLogFeed
         };
     }
+
+    public SessionArtifactOptions ToSessionArtifactOptions() => new()
+    {
+        ExportSessionLogOnLeave = ExportSessionLogOnLeave,
+        ForensicSalt = string.IsNullOrWhiteSpace(ForensicSalt) ? null : ForensicSalt.Trim(),
+        ExportDirectory = string.IsNullOrWhiteSpace(SessionExportDirectory)
+            ? null
+            : SessionExportDirectory.Trim()
+    };
 }

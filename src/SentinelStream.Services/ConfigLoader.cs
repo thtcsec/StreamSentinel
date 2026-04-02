@@ -80,6 +80,12 @@ public static class ConfigLoader
                 case "FORENSIC_SALT":
                     config.ForensicSalt = value;
                     break;
+                case "SESSION_EXPORT_ON_LEAVE":
+                    config.ExportSessionLogOnLeave = ParseBool(value, defaultValue: false);
+                    break;
+                case "SESSION_EXPORT_DIRECTORY":
+                    config.SessionExportDirectory = value;
+                    break;
                 case "LOG_SERVER_URL":
                     config.LogServerUrl = value;
                     break;

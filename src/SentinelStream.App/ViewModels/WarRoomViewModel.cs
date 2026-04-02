@@ -1,6 +1,9 @@
 using System.Collections.ObjectModel;
+using System.IO;
+using System.Windows;
 using System.Windows.Input;
 using SentinelStream.Core.Agora;
+using SentinelStream.Core.Forensics;
 using SentinelStream.Models;
 using SentinelStream.Services;
 
@@ -13,6 +16,7 @@ public class WarRoomViewModel : ViewModelBase, IDisposable
 {
     private readonly AgoraWarRoomClient _agoraClient;
     private readonly WarRoomFeedOptions _feedOptions;
+    private readonly SessionArtifactOptions _artifactOptions;
     private LogStreamClient? _logStreamClient;
     private string _connectionStatus = "Disconnected";
     private string _channelName = string.Empty;
@@ -67,10 +71,14 @@ public class WarRoomViewModel : ViewModelBase, IDisposable
 
     public event EventHandler? LeaveRequested;
 
-    public WarRoomViewModel(AgoraWarRoomClient agoraClient, WarRoomFeedOptions feedOptions)
+    public WarRoomViewModel(
+        AgoraWarRoomClient agoraClient,
+        WarRoomFeedOptions feedOptions,
+        SessionArtifactOptions? sessionArtifacts = null)
     {
         _agoraClient = agoraClient;
         _feedOptions = feedOptions;
+        _artifactOptions = sessionArtifacts ?? new SessionArtifactOptions();
 
         SendChatCommand = new RelayCommand(
             execute: _ => OnSendChat(),
@@ -250,6 +258,8 @@ public class WarRoomViewModel : ViewModelBase, IDisposable
 
     private async void OnLeave()
     {
+        await TryExportSessionArtifactAsync();
+
         if (_logStreamClient != null)
         {
             try
@@ -270,6 +280,72 @@ public class WarRoomViewModel : ViewModelBase, IDisposable
 
         await _agoraClient.LeaveWarRoomAsync();
         LeaveRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private async Task TryExportSessionArtifactAsync()
+    {
+        if (!_artifactOptions.ShouldExport || _artifactOptions.ForensicSalt is not { Length: > 0 } salt)
+            return;
+
+        List<string> lines;
+        string channelSnap;
+        try
+        {
+            (lines, channelSnap) = await Application.Current!.Dispatcher.InvokeAsync(() =>
+                (LogMessages.ToList(), ChannelName));
+        }
+        catch
+        {
+            return;
+        }
+
+        var dir = string.IsNullOrWhiteSpace(_artifactOptions.ExportDirectory)
+            ? Path.GetTempPath()
+            : _artifactOptions.ExportDirectory!;
+
+        try
+        {
+            Directory.CreateDirectory(dir);
+        }
+        catch (Exception ex)
+        {
+            Application.Current?.Dispatcher.Invoke(() =>
+                MessageBox.Show(
+                    $"Could not create export directory:\n{dir}\n\n{ex.Message}",
+                    "SentinelStream — session export",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning));
+            return;
+        }
+
+        var safeChannel = string.Join("_", (channelSnap ?? "room").Split(Path.GetInvalidFileNameChars()));
+        var stamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
+        var path = Path.Combine(dir, $"sentinelstream_{safeChannel}_{stamp}_utc.log");
+
+        try
+        {
+            await File.WriteAllLinesAsync(path, lines);
+            var hash = await ForensicHasher.ComputeFileHashAsync(path, salt);
+            var report = await ForensicHasher.GenerateForensicReportAsync(path, salt, channelSnap ?? "");
+            var reportPath = Path.Combine(dir, $"sentinelstream_{safeChannel}_{stamp}_utc_forensic.txt");
+            await File.WriteAllTextAsync(reportPath, report);
+
+            Application.Current?.Dispatcher.Invoke(() =>
+                MessageBox.Show(
+                    $"Session log and forensic report saved.\n\nLog:\n{path}\n\nReport:\n{reportPath}\n\nSHA-256 (salted):\n{hash}",
+                    "SentinelStream — session export",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information));
+        }
+        catch (Exception ex)
+        {
+            Application.Current?.Dispatcher.Invoke(() =>
+                MessageBox.Show(
+                    $"Session export failed:\n{ex.Message}",
+                    "SentinelStream — session export",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning));
+        }
     }
 
     public void Dispose()

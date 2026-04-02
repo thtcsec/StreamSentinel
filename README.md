@@ -1,6 +1,10 @@
 # SentinelStream (StreamSentinel)
 
+[![Agora Logo](agora.png)](https://www.agora.io/)
+
 Desktop **war room** shell for security operations: a WPF dashboard that shows a **live log pane**, **participant list**, and **chat**, while a small **Python agent** can tail real log files or emit timed JSON events over WebSockets.
+
+**Repository:** [github.com/thtcsec/SentinelStream](https://github.com/thtcsec/SentinelStream)
 
 ## What this is for (today)
 
@@ -31,7 +35,10 @@ Copy `.env.example` to `.env` and run `.\setup_env.ps1` to rotate crypto-related
 | `LOG_SERVER_URL` | e.g. `ws://127.0.0.1:8000/ws/logs` — empty = no agent connection. |
 | `DEMO_LOG_FEED` | `true` / `false` — extra **demo** lines generated inside the app (independent of the agent). |
 | `AGORA_APP_ID` | Reserved for future Agora integration. |
-| `ENCRYPTION_KEY`, `FORENSIC_SALT` | Reserved for future features; used by library code when you wire them in. |
+| `ENCRYPTION_KEY` | Reserved for future media encryption when Agora is integrated. |
+| `FORENSIC_SALT` | Salt for `ForensicHasher` (session log export). |
+| `SESSION_EXPORT_ON_LEAVE` | `true` / `false` — when `true` and salt is set, leaving the war room writes a `.log` + forensic report (SHA-256). |
+| `SESSION_EXPORT_DIRECTORY` | Optional folder for those files (default: system temp). |
 
 The app resolves `.env` from the working directory or next to the executable.
 
@@ -91,7 +98,7 @@ Enter operator name and war room id. The footer shows **log agent connection sta
 1. Keep **config-driven** log paths and URLs; extend agent with more sources (e.g. Windows Event Log) behind env flags.  
 2. Integrate **Agora RTC** + token flow; then align encryption UI with real behavior.  
 3. Optional **ASP.NET** backend for sessions and tokens.  
-4. **Forensics:** call `ForensicHasher` when exporting session artifacts.  
+4. **Forensics:** extend beyond on-leave log export (e.g. recordings when RTC exists).  
 5. **Shared terminal** only with a clear security and audit model.
 
 ## Security disclaimer
@@ -100,4 +107,4 @@ For **authorized** incident response, education, and testing only. Misuse agains
 
 ---
 
-*Branding note: README historically referenced “SentinelStream” and Agora; repository layout uses `SentinelStream.*` projects.*
+*Branding: project names use `SentinelStream.*`; the Agora image links to [Agora.io](https://www.agora.io/) as the intended RTC vendor for a future integration.*

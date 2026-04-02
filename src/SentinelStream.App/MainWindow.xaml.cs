@@ -34,7 +34,10 @@ public partial class MainWindow : Window
                 }
 
                 var agoraClient = new AgoraWarRoomClient(appId);
-                var warRoomVm = new WarRoomViewModel(agoraClient, config.ToFeedOptions());
+                var warRoomVm = new WarRoomViewModel(
+                    agoraClient,
+                    config.ToFeedOptions(),
+                    config.ToSessionArtifactOptions());
 
                 warRoomVm.LeaveRequested += (_, _) =>
                 {
