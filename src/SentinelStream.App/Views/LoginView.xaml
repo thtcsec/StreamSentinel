@@ -1,0 +1,133 @@
+<UserControl x:Class="SentinelStream.App.Views.LoginView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:SentinelStream.App.ViewModels">
+    <UserControl.DataContext>
+        <vm:LoginViewModel />
+    </UserControl.DataContext>
+
+    <Grid Background="#0a0e17">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Login Card -->
+        <Border Grid.Row="1"
+                Background="#111827"
+                BorderBrush="#1e3a5f"
+                BorderThickness="1"
+                CornerRadius="12"
+                Padding="48,40"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                MinWidth="420">
+            <Border.Effect>
+                <DropShadowEffect Color="#00d4ff" BlurRadius="30" ShadowDepth="0" Opacity="0.15" />
+            </Border.Effect>
+
+            <StackPanel>
+                <!-- Logo / Title -->
+                <TextBlock Text="🛡️"
+                           FontSize="48"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,12" />
+
+                <TextBlock Text="SENTINEL STREAM"
+                           FontSize="28"
+                           FontWeight="Bold"
+                           Foreground="#00d4ff"
+                           HorizontalAlignment="Center"
+                           FontFamily="Segoe UI" />
+
+                <TextBlock Text="Secure Incident Response War Room"
+                           FontSize="13"
+                           Foreground="#6b7280"
+                           HorizontalAlignment="Center"
+                           Margin="0,4,0,32"
+                           FontFamily="Segoe UI" />
+
+                <!-- Display Name -->
+                <TextBlock Text="OPERATOR NAME"
+                           FontSize="11"
+                           Foreground="#9ca3af"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,6"
+                           FontFamily="Segoe UI" />
+                <TextBox x:Name="TxtDisplayName"
+                         Text="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}"
+                         Background="#1f2937"
+                         Foreground="#e5e7eb"
+                         BorderBrush="#374151"
+                         BorderThickness="1"
+                         Padding="12,10"
+                         FontSize="14"
+                         FontFamily="Cascadia Code, Consolas"
+                         Margin="0,0,0,16" />
+
+                <!-- War Room ID -->
+                <TextBlock Text="WAR ROOM ID"
+                           FontSize="11"
+                           Foreground="#9ca3af"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,6"
+                           FontFamily="Segoe UI" />
+                <TextBox x:Name="TxtWarRoomId"
+                         Text="{Binding WarRoomId, UpdateSourceTrigger=PropertyChanged}"
+                         Background="#1f2937"
+                         Foreground="#e5e7eb"
+                         BorderBrush="#374151"
+                         BorderThickness="1"
+                         Padding="12,10"
+                         FontSize="14"
+                         FontFamily="Cascadia Code, Consolas"
+                         Margin="0,0,0,24" />
+
+                <!-- Join Button -->
+                <Button x:Name="BtnJoin"
+                        Content="🔒 JOIN WAR ROOM"
+                        Command="{Binding JoinCommand}"
+                        Background="#00d4ff"
+                        Foreground="#0a0e17"
+                        FontSize="14"
+                        FontWeight="Bold"
+                        Padding="16,12"
+                        BorderThickness="0"
+                        Cursor="Hand"
+                        FontFamily="Segoe UI">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}"
+                                    CornerRadius="8"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+
+                <!-- Status -->
+                <TextBlock Text="{Binding StatusMessage}"
+                           FontSize="12"
+                           Foreground="#4ade80"
+                           HorizontalAlignment="Center"
+                           Margin="0,16,0,0"
+                           FontFamily="Cascadia Code, Consolas" />
+
+                <!-- Encryption badge -->
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Center"
+                            Margin="0,20,0,0">
+                    <TextBlock Text="🔐"
+                               FontSize="12"
+                               Margin="0,0,6,0" />
+                    <TextBlock Text="AES-256-GCM End-to-End Encrypted"
+                               FontSize="11"
+                               Foreground="#6b7280"
+                               FontFamily="Segoe UI" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

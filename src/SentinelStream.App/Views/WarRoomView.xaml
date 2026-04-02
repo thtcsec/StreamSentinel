@@ -1,0 +1,246 @@
+<UserControl x:Class="SentinelStream.App.Views.WarRoomView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid Background="#0a0e17">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="50" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- ═══ TOP BAR ═══ -->
+        <Border Grid.Row="0" Background="#111827" BorderBrush="#1e3a5f" BorderThickness="0,0,0,1">
+            <Grid Margin="16,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="🛡️ SENTINEL STREAM"
+                               FontSize="15" FontWeight="Bold" Foreground="#00d4ff"
+                               VerticalAlignment="Center" FontFamily="Segoe UI" />
+                    <Border Background="#1e3a5f" CornerRadius="4" Padding="8,3" Margin="16,0,0,0"
+                            VerticalAlignment="Center">
+                        <TextBlock Text="{Binding ChannelName, StringFormat='WAR ROOM: {0}'}"
+                                   FontSize="11" Foreground="#9ca3af"
+                                   FontFamily="Cascadia Code, Consolas" />
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
+                    <Ellipse Width="8" Height="8" Margin="0,0,6,0">
+                        <Ellipse.Style>
+                            <Style TargetType="Ellipse">
+                                <Setter Property="Fill" Value="#4ade80" />
+                            </Style>
+                        </Ellipse.Style>
+                    </Ellipse>
+                    <TextBlock Text="{Binding ConnectionStatus}"
+                               FontSize="11" Foreground="#4ade80"
+                               FontFamily="Cascadia Code, Consolas"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+
+                <Button Grid.Column="3" Content="✕ LEAVE"
+                        Command="{Binding LeaveCommand}"
+                        Background="#dc2626" Foreground="White"
+                        FontSize="11" FontWeight="Bold" Padding="12,4"
+                        BorderThickness="0" Cursor="Hand"
+                        VerticalAlignment="Center" FontFamily="Segoe UI">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" CornerRadius="4"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- ═══ MAIN CONTENT ═══ -->
+        <Grid Grid.Row="1" Margin="12,12,12,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="300" />
+            </Grid.ColumnDefinitions>
+
+            <!-- LEFT: Log Terminal -->
+            <Border Grid.Column="0" Background="#111827" BorderBrush="#1e3a5f" BorderThickness="1"
+                    CornerRadius="8" Margin="0,0,8,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="36" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Terminal Header -->
+                    <Border Grid.Row="0" Background="#1a1f2e" CornerRadius="8,8,0,0" Padding="12,0">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Ellipse Width="10" Height="10" Fill="#ef4444" Margin="0,0,6,0" />
+                            <Ellipse Width="10" Height="10" Fill="#eab308" Margin="0,0,6,0" />
+                            <Ellipse Width="10" Height="10" Fill="#22c55e" Margin="0,0,12,0" />
+                            <TextBlock Text="📡 LIVE LOG STREAM" FontSize="11" Foreground="#9ca3af"
+                                       FontWeight="SemiBold" FontFamily="Segoe UI" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Log Messages -->
+                    <ListBox x:Name="LogList" Grid.Row="1"
+                             ItemsSource="{Binding LogMessages}"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Foreground="#4ade80"
+                             FontFamily="Cascadia Code, Consolas"
+                             FontSize="12"
+                             Padding="8,4"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Padding" Value="4,2" />
+                                <Setter Property="Background" Value="Transparent" />
+                                <Setter Property="BorderThickness" Value="0" />
+                                <Setter Property="Foreground" Value="#4ade80" />
+                                <Style.Triggers>
+                                    <DataTrigger Value="True">
+                                        <DataTrigger.Binding>
+                                            <Binding Path="." Converter="{x:Null}" />
+                                        </DataTrigger.Binding>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+            <!-- RIGHT PANEL -->
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- Participants -->
+                <Border Grid.Row="0" Background="#111827" BorderBrush="#1e3a5f" BorderThickness="1"
+                        CornerRadius="8" Margin="0,0,0,8" MaxHeight="180">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="36" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <Border Grid.Row="0" Background="#1a1f2e" CornerRadius="8,8,0,0" Padding="12,0">
+                            <TextBlock Text="👥 PARTICIPANTS" FontSize="11" Foreground="#9ca3af"
+                                       FontWeight="SemiBold" VerticalAlignment="Center" FontFamily="Segoe UI" />
+                        </Border>
+
+                        <ListBox Grid.Row="1" ItemsSource="{Binding Participants}"
+                                 Background="Transparent" BorderThickness="0"
+                                 Foreground="#e5e7eb" FontFamily="Segoe UI" FontSize="13"
+                                 Padding="8,4">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="Padding" Value="4,3" />
+                                    <Setter Property="Background" Value="Transparent" />
+                                    <Setter Property="BorderThickness" Value="0" />
+                                    <Setter Property="Foreground" Value="#e5e7eb" />
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                        </ListBox>
+                    </Grid>
+                </Border>
+
+                <!-- Chat -->
+                <Border Grid.Row="1" Background="#111827" BorderBrush="#1e3a5f" BorderThickness="1"
+                        CornerRadius="8">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="36" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <Border Grid.Row="0" Background="#1a1f2e" CornerRadius="8,8,0,0" Padding="12,0">
+                            <TextBlock Text="💬 SECURE CHAT" FontSize="11" Foreground="#9ca3af"
+                                       FontWeight="SemiBold" VerticalAlignment="Center" FontFamily="Segoe UI" />
+                        </Border>
+
+                        <ListBox Grid.Row="1" ItemsSource="{Binding ChatMessages}"
+                                 Background="Transparent" BorderThickness="0"
+                                 Foreground="#e5e7eb" FontFamily="Cascadia Code, Consolas"
+                                 FontSize="12" Padding="8,4">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="Padding" Value="4,2" />
+                                    <Setter Property="Background" Value="Transparent" />
+                                    <Setter Property="BorderThickness" Value="0" />
+                                    <Setter Property="Foreground" Value="#e5e7eb" />
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                        </ListBox>
+
+                        <Grid Grid.Row="2" Margin="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBox Grid.Column="0"
+                                     Text="{Binding ChatInput, UpdateSourceTrigger=PropertyChanged}"
+                                     Background="#1f2937" Foreground="#e5e7eb"
+                                     BorderBrush="#374151" BorderThickness="1"
+                                     Padding="8,6" FontSize="12"
+                                     FontFamily="Cascadia Code, Consolas"
+                                     Margin="0,0,6,0" />
+
+                            <Button Grid.Column="1" Content="SEND"
+                                    Command="{Binding SendChatCommand}"
+                                    Background="#00d4ff" Foreground="#0a0e17"
+                                    FontSize="11" FontWeight="Bold"
+                                    Padding="12,6" BorderThickness="0"
+                                    Cursor="Hand" FontFamily="Segoe UI">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}" CornerRadius="4"
+                                                Padding="{TemplateBinding Padding}">
+                                            <ContentPresenter HorizontalAlignment="Center"
+                                                              VerticalAlignment="Center" />
+                                        </Border>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                        </Grid>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <!-- ═══ STATUS BAR ═══ -->
+        <Border Grid.Row="2" Background="#111827" BorderBrush="#1e3a5f" BorderThickness="0,1,0,0"
+                Padding="16,6">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                           Text="🔐 AES-256-GCM • E2E Encrypted • SHA-256 Forensic Integrity Active"
+                           FontSize="11" Foreground="#6b7280" FontFamily="Segoe UI"
+                           VerticalAlignment="Center" />
+
+                <TextBlock Grid.Column="1"
+                           Text="{Binding DisplayName, StringFormat='Operator: {0}'}"
+                           FontSize="11" Foreground="#9ca3af" FontFamily="Cascadia Code, Consolas"
+                           VerticalAlignment="Center" />
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

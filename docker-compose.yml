@@ -1,0 +1,37 @@
+# ═══════════════════════════════════════════════════
+# SentinelStream - Docker Compose
+# Runs the Python monitoring agent in a container
+# ═══════════════════════════════════════════════════
+# Note: The WPF App is a Windows desktop application
+# and is NOT containerized. Only the agent runs in Docker.
+
+services:
+  # ─── Log Exporter Agent ────────────────────────
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: sentinel-agent
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - sentinel-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  sentinel-net:
+    driver: bridge
