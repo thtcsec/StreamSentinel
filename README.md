@@ -22,7 +22,7 @@ This repo is a **structured prototype**, not a finished SOC product.
 | **WPF app** (`src/SentinelStream.App`) | Login → War Room UI; optional **log substring filter** (full buffer kept for export); connects to the agent when configured. |
 | **LogStreamClient** (`SentinelStream.Services`) | `ClientWebSocket` → JSON or plain text lines → `LogEntry`. |
 | **AgoraWarRoomClient** (`SentinelStream.Core`) | **Simulation** of channel join/leave/chat (no Agora NuGet wired yet). |
-| **Python agent** (`agent/log_exporter.py`) | FastAPI + WebSocket `/ws/logs`; behavior from **environment variables** only. |
+| **Python agent** (`agent/log_exporter.py`) | WebSocket `/ws/logs`, optional **HTTP POST `/ingest/log`**, optional **Syslog UDP**; all env-driven. |
 
 ## Configuration (no hardcoded URLs in code paths)
 
@@ -53,6 +53,29 @@ Copy `agent/.env.example` to `agent/.env`. All sources are optional; combine as 
 | `AGENT_MOCK_INTERVAL_SEC` | Seconds between **synthetic** JSON log events (`0` = off). |
 | `AGENT_MOCK_MESSAGE` | Mock template; `{iso}` → UTC timestamp. |
 | `AGENT_MOCK_SOURCE` | `source` field for mock lines. |
+| `INGEST_TOKEN` | If set, `POST /ingest/log` must send header `X-Sentinel-Token: <token>`. |
+| `SYSLOG_UDP_PORT` | UDP port to listen on (e.g. `5514`); messages are broadcast to every open dashboard. |
+| `SYSLOG_QUEUE_MAX` | Max queued datagrams before drop (default `1000`). |
+
+### Push logs without tailing files
+
+With the agent running and the WPF client connected (`LOG_SERVER_URL` set), any script can push a JSON line:
+
+```powershell
+# PowerShell (optional token: -Headers @{ "X-Sentinel-Token" = "your-secret" })
+$body = @{ message = "Backup job finished"; severity = "info"; source = "backup-script" } | ConvertTo-Json
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/ingest/log" -Method Post -Body $body -ContentType "application/json"
+```
+
+```bash
+curl -sS -X POST http://127.0.0.1:8000/ingest/log \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Cron alert","severity":"warning","source":"cron"}'
+```
+
+Batch: `POST /ingest/log/batch` with a JSON array (max 500 items). Same optional `X-Sentinel-Token`.
+
+**Syslog:** set `SYSLOG_UDP_PORT`, then point a forwarder at `udp://<agent-host>:<port>`. Lines appear in the war room as `source` `syslog:<ip>:<port>`.
 
 ## Quick start
 
@@ -83,7 +106,7 @@ copy .env.example .env
 python -m uvicorn log_exporter:app --host 0.0.0.0 --port 8000
 ```
 
-Health check: `GET http://127.0.0.1:8000/health` shows which modes are enabled.
+Health check: `GET http://127.0.0.1:8000/health` shows tail paths, mock interval, syslog port, whether ingest token is required, and how many WebSocket clients are connected.
 
 ### 3. WPF client
 
@@ -96,7 +119,7 @@ Enter operator name and war room id. The footer shows **log agent connection sta
 
 ## Roadmap (high level)
 
-1. Keep **config-driven** log paths and URLs; extend agent with more sources (e.g. Windows Event Log) behind env flags.  
+1. More **sources** (e.g. Windows Event Log) behind env flags; tighten ingest auth if exposed beyond localhost.  
 2. Integrate **Agora RTC** + token flow; then align encryption UI with real behavior.  
 3. Optional **ASP.NET** backend for sessions and tokens.  
 4. **Forensics:** extend beyond on-leave log export (e.g. recordings when RTC exists).  

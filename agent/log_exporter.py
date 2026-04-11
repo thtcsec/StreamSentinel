@@ -1,7 +1,11 @@
 """
 SentinelStream monitoring agent: streams log lines to the WPF dashboard over WebSockets.
 
-All behavior is driven by environment variables (see agent/.env.example).
+Sources (all optional, env-driven — see agent/.env.example):
+- Tail files (LOG_TAIL_PATH / LOG_TAIL_PATHS)
+- Mock interval
+- HTTP POST /ingest/log (push from scripts, SIEM hooks, curl)
+- Syslog UDP (SYSLOG_UDP_PORT) → broadcast to all connected dashboards
 """
 
 from __future__ import annotations
@@ -10,20 +14,24 @@ import asyncio
 import json
 import logging
 import os
+import re
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Annotated, Literal
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Header, HTTPException, WebSocket
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 load_dotenv()
-
-app = FastAPI(title="SentinelStream Log Exporter")
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+SeverityName = Literal["debug", "info", "warning", "error", "critical"]
 
 
 def _env_float(name: str, default: float) -> float:
@@ -37,9 +45,33 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw, 10)
+    except ValueError:
+        logger.warning("Invalid %s=%r, using default %s", name, raw, default)
+        return default
+
+
 def _env_path(name: str) -> Path | None:
     raw = os.getenv(name, "").strip()
     return Path(raw) if raw else None
+
+
+def _ingest_token_expected() -> str | None:
+    t = os.getenv("INGEST_TOKEN", "").strip()
+    return t or None
+
+
+def _verify_ingest_token(header_val: str | None) -> None:
+    expected = _ingest_token_expected()
+    if not expected:
+        return
+    if header_val != expected:
+        raise HTTPException(status_code=401, detail="Invalid or missing X-Sentinel-Token")
 
 
 def _tail_paths_from_env() -> list[Path]:
@@ -72,6 +104,225 @@ def _build_log_entry(
     }
 
 
+def _guess_severity_from_text(text: str) -> str:
+    ul = text.upper()
+    if "CRITICAL" in ul or "ALERT" in ul or "EMERG" in ul:
+        return "critical"
+    if "ERROR" in ul or " ERR " in ul:
+        return "error"
+    if "WARN" in ul:
+        return "warning"
+    if "DEBUG" in ul:
+        return "debug"
+    return "info"
+
+
+# --- RFC3164-ish PRI strip: <30>message
+_pri_re = re.compile(r"^<\d{1,3}>")
+
+
+def _strip_syslog_pri(text: str) -> str:
+    return _pri_re.sub("", text, count=1).strip()
+
+
+class WsHub:
+    """All connected dashboard WebSockets (for ingest + syslog broadcast)."""
+
+    def __init__(self) -> None:
+        self._clients: list[WebSocket] = []
+        self._lock = asyncio.Lock()
+
+    async def add(self, ws: WebSocket) -> None:
+        async with self._lock:
+            self._clients.append(ws)
+
+    async def remove(self, ws: WebSocket) -> None:
+        async with self._lock:
+            if ws in self._clients:
+                self._clients.remove(ws)
+
+    async def count(self) -> int:
+        async with self._lock:
+            return len(self._clients)
+
+    async def broadcast(self, payload: dict) -> int:
+        text = json.dumps(payload, ensure_ascii=False)
+        async with self._lock:
+            snapshot = list(self._clients)
+        dead: list[WebSocket] = []
+        sent = 0
+        for ws in snapshot:
+            try:
+                await ws.send_text(text)
+                sent += 1
+            except Exception:
+                dead.append(ws)
+        if dead:
+            async with self._lock:
+                for ws in dead:
+                    if ws in self._clients:
+                        self._clients.remove(ws)
+        return sent
+
+
+hub = WsHub()
+
+
+class IngestLogBody(BaseModel):
+    """Body for POST /ingest/log — matches WPF LogEntry JSON (camelCase / PascalCase)."""
+
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    message: str = Field(
+        ...,
+        min_length=1,
+        max_length=65536,
+        validation_alias=AliasChoices("message", "Message"),
+    )
+    severity: SeverityName = Field(
+        default="info",
+        validation_alias=AliasChoices("severity", "Severity"),
+    )
+    source: str = Field(
+        default="ingest",
+        max_length=256,
+        validation_alias=AliasChoices("source", "Source"),
+    )
+    timestamp: datetime | None = Field(
+        default=None,
+        validation_alias=AliasChoices("timestamp", "Timestamp"),
+    )
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def _normalize_severity(cls, v):
+        if isinstance(v, str):
+            return v.lower()
+        return v
+
+    def to_payload(self) -> dict:
+        ts = self.timestamp
+        if ts is None:
+            ts = datetime.now(timezone.utc)
+        elif ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        return {
+            "timestamp": ts.isoformat(),
+            "severity": self.severity,
+            "source": self.source[:256],
+            "message": self.message,
+            "rawData": self.message,
+        }
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    udp_transport: asyncio.DatagramTransport | None = None
+    consumer_task: asyncio.Task | None = None
+    queue: asyncio.Queue | None = None
+
+    port = _env_int("SYSLOG_UDP_PORT", 0)
+    if port > 0:
+        queue = asyncio.Queue(maxsize=_env_int("SYSLOG_QUEUE_MAX", 1000))
+
+        class SyslogReceiver(asyncio.DatagramProtocol):
+            def __init__(self, q: asyncio.Queue) -> None:
+                self._q = q
+
+            def datagram_received(self, data: bytes, addr) -> None:
+                try:
+                    self._q.put_nowait((data, addr))
+                except asyncio.QueueFull:
+                    logger.warning("Syslog queue full, drop from %s", addr)
+
+        loop = asyncio.get_event_loop()
+        transport, _ = await loop.create_datagram_endpoint(
+            lambda: SyslogReceiver(queue), local_addr=("0.0.0.0", port)
+        )
+        udp_transport = transport
+        consumer_task = asyncio.create_task(_syslog_consumer(queue, hub))
+        logger.info("Syslog UDP listening on 0.0.0.0:%s", port)
+
+    yield
+
+    if consumer_task:
+        consumer_task.cancel()
+        try:
+            await consumer_task
+        except asyncio.CancelledError:
+            pass
+    if udp_transport:
+        udp_transport.close()
+
+
+app = FastAPI(title="SentinelStream Log Exporter", lifespan=_lifespan)
+
+
+async def _syslog_consumer(queue: asyncio.Queue, h: WsHub) -> None:
+    while True:
+        data, addr = await queue.get()
+        text = data.decode("utf-8", errors="replace").strip()
+        if not text:
+            continue
+        text = _strip_syslog_pri(text)
+        payload = _build_log_entry(
+            message=text,
+            severity=_guess_severity_from_text(text),
+            source=f"syslog:{addr[0]}:{addr[1]}",
+            raw=text,
+        )
+        n = await h.broadcast(payload)
+        if n == 0:
+            logger.debug("Syslog message received but no WebSocket clients connected")
+
+
+@app.get("/")
+def read_root():
+    return {"status": "running", "component": "SentinelStream.Agent"}
+
+
+@app.get("/health")
+async def health():
+    paths = _tail_paths_from_env()
+    mock_iv = _env_float("AGENT_MOCK_INTERVAL_SEC", 0.0)
+    sp = _env_int("SYSLOG_UDP_PORT", 0)
+    return {
+        "log_tail_paths": [str(p) for p in paths],
+        "log_tail_paths_existing": [str(p) for p in paths if p.is_file()],
+        "mock_interval_sec": mock_iv,
+        "syslog_udp_port": sp if sp > 0 else None,
+        "ingest_token_required": _ingest_token_expected() is not None,
+        "websocket_clients": await hub.count(),
+    }
+
+
+@app.post("/ingest/log")
+async def ingest_log(
+    body: IngestLogBody,
+    x_sentinel_token: Annotated[str | None, Header(alias="X-Sentinel-Token")] = None,
+):
+    """Push one log line to every connected WPF dashboard (same JSON as WebSocket stream)."""
+    _verify_ingest_token(x_sentinel_token)
+    payload = body.to_payload()
+    n = await hub.broadcast(payload)
+    return {"ok": True, "delivered_to_ws_clients": n}
+
+
+@app.post("/ingest/log/batch")
+async def ingest_log_batch(
+    entries: list[IngestLogBody],
+    x_sentinel_token: Annotated[str | None, Header(alias="X-Sentinel-Token")] = None,
+):
+    _verify_ingest_token(x_sentinel_token)
+    if len(entries) > 500:
+        raise HTTPException(status_code=400, detail="Max 500 entries per batch")
+    total = 0
+    for body in entries:
+        n = await hub.broadcast(body.to_payload())
+        total += n
+    return {"ok": True, "entries": len(entries), "send_operations": total}
+
+
 async def send_json(websocket: WebSocket, payload: dict) -> None:
     await websocket.send_text(json.dumps(payload, ensure_ascii=False))
 
@@ -80,8 +331,7 @@ async def tail_file_task(websocket: WebSocket, file_path: Path) -> None:
     """Follow a growing text file and emit each new line as JSON."""
     source = f"tail:{file_path.name}"
     try:
-        # Wait until file exists (or log and exit task)
-        for _ in range(600):  # up to ~5 min @ 0.5s
+        for _ in range(600):
             if file_path.is_file():
                 break
             await asyncio.sleep(0.5)
@@ -103,14 +353,7 @@ async def tail_file_task(websocket: WebSocket, file_path: Path) -> None:
                 if line:
                     text = line.rstrip("\r\n")
                     if text:
-                        sev = "info"
-                        ul = text.upper()
-                        if "ERROR" in ul or " ERR " in ul:
-                            sev = "error"
-                        elif "WARN" in ul:
-                            sev = "warning"
-                        elif "CRITICAL" in ul or "ALERT" in ul:
-                            sev = "critical"
+                        sev = _guess_severity_from_text(text)
                         await send_json(
                             websocket,
                             _build_log_entry(
@@ -137,7 +380,7 @@ async def tail_file_task(websocket: WebSocket, file_path: Path) -> None:
 async def mock_interval_task(websocket: WebSocket, interval_sec: float) -> None:
     template = os.getenv(
         "AGENT_MOCK_MESSAGE",
-        "Synthetic heartbeat — set LOG_TAIL_PATH(S) or AGENT_MOCK_INTERVAL_SEC",
+        "Synthetic heartbeat — set LOG_TAIL_PATH(S), SYSLOG_UDP_PORT, or POST /ingest/log",
     )
     source = os.getenv("AGENT_MOCK_SOURCE", "mock")
     while True:
@@ -149,26 +392,11 @@ async def mock_interval_task(websocket: WebSocket, interval_sec: float) -> None:
         await asyncio.sleep(max(interval_sec, 0.5))
 
 
-@app.get("/")
-def read_root():
-    return {"status": "running", "component": "SentinelStream.Agent"}
-
-
-@app.get("/health")
-def health():
-    paths = _tail_paths_from_env()
-    mock_iv = _env_float("AGENT_MOCK_INTERVAL_SEC", 0.0)
-    return {
-        "log_tail_paths": [str(p) for p in paths],
-        "log_tail_paths_existing": [str(p) for p in paths if p.is_file()],
-        "mock_interval_sec": mock_iv,
-    }
-
-
 @app.websocket("/ws/logs")
 async def websocket_logs(websocket: WebSocket):
     await websocket.accept()
-    logger.info("WebSocket connected.")
+    await hub.add(websocket)
+    logger.info("WebSocket connected (hub size ~%s)", await hub.count())
 
     tail_paths = _tail_paths_from_env()
     mock_interval = _env_float("AGENT_MOCK_INTERVAL_SEC", 0.0)
@@ -188,14 +416,13 @@ async def websocket_logs(websocket: WebSocket):
                 websocket,
                 _build_log_entry(
                     message=(
-                        "Agent idle: set LOG_TAIL_PATH or LOG_TAIL_PATHS and/or "
-                        "AGENT_MOCK_INTERVAL_SEC>0 (see agent/.env.example)."
+                        "Agent idle: configure LOG_TAIL_PATH(S), AGENT_MOCK_INTERVAL_SEC, "
+                        "SYSLOG_UDP_PORT, or push events via POST /ingest/log (see README)."
                     ),
                     severity="warning",
                     source="agent",
                 ),
             )
-            # Keep connection open for dashboard until client disconnects
             while True:
                 await asyncio.sleep(60)
         else:
@@ -208,7 +435,11 @@ async def websocket_logs(websocket: WebSocket):
         for t in tasks:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-        await websocket.close()
+        await hub.remove(websocket)
+        try:
+            await websocket.close()
+        except Exception:
+            pass
         logger.info("WebSocket closed.")
 
 
